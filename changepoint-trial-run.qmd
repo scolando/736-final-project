@@ -1,0 +1,102 @@
+---
+title: "Change Point Detection Trial Run"
+format: html
+execute: 
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r}
+library(tidyverse)
+library(patchwork)
+library(invgamma)
+library(MCMCpack)
+
+source('changepoint-functions.R')
+```
+
+```{r}
+set.seed(20)
+Yk1 <- outcome_simulator(N = 150, k = 1)
+Yk2 <- outcome_simulator(N = 150, k = 2)
+
+head(Yk1)
+```
+
+
+```{r}
+#| out-width: 100%
+# for segment plotting
+Yk1_segments <- Yk1 |>
+  group_by(true_mu) |>
+  summarize(t_min = min(t),
+            t_max = max(t)) 
+
+# observed time series
+Yk1 |>
+  ggplot(aes(x = t, y = y))+
+  geom_line()+
+  geom_point(size = 0.7)+
+  theme_minimal()
+
+ggsave('pseudo-timeseries1.pdf', bg = 'white', width = )
+
+# true change point visualization
+Yk1 |>
+  ggplot(aes(x = t, y = y))+
+  geom_vline(xintercept = 50,
+             color = 'blue',
+             linetype = 'dashed')+
+  geom_segment(aes(x = t_min, xend = t_max, y = true_mu),
+               data = Yk1_segments,
+               color = 'grey70')+
+  geom_point(size = 0.7)+
+  theme_minimal()
+
+ggsave('oracle-timeseries1.pdf', bg = 'white' )
+```
+
+
+```{r}
+#| out-width: 100%
+Yk2_segments <- Yk2 |>
+  group_by(true_mu) |>
+  summarize(t_min = min(t),
+            t_max = max(t)) 
+
+# observed time series
+Yk2 |>
+  ggplot(aes(x = t, y = y))+
+  geom_line()+
+  geom_point(size = 0.7)+
+  theme_minimal()
+
+ggsave('pseudo-timeseries2.pdf', bg = 'white')
+
+# true change point visualization
+Yk2 |>
+  ggplot(aes(x = t, y = y))+
+  geom_vline(xintercept = c(50,100),
+             color = 'blue',
+             linetype = 'dashed')+
+  geom_segment(aes(x = t_min, xend = t_max, y = true_mu),
+               data = Yk2_segments,
+               color = 'grey70')+
+  geom_point(size = 0.7)+
+  theme_minimal()
+
+ggsave('oracle-timeseries2.pdf', bg = 'white' )
+```
+
+
+```{r}
+A <- one_ahead_tmatrix(K = 10)
+A
+```
+
+```{r}
+alpha_1 = max(5 - i, 1)
+alpha_2 = min(i, 5)
+```
+
