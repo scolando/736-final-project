@@ -91,12 +91,8 @@ ggsave('oracle-timeseries2.pdf', bg = 'white' )
 
 
 ```{r}
-A <- one_ahead_tmatrix(K = 10)
+A <- tmatrix(K = 10)
 A
 ```
 
-```{r}
-alpha_1 = max(5 - i, 1)
-alpha_2 = min(i, 5)
-```
 

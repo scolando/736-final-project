@@ -47,14 +47,17 @@ outcome_simulator <- function(N = 150, k = 1,
 }
 
 ###############################################################################
-# direchlet prior on the transition matrix
+# direchlet prior on the one-ahead transition matrix 
+# (just writing this out for myself)
 ###############################################################################
+
 initial_states_creator <- function(N, K) {
-  return(rep(1:K, each = floor(N / K)))
+  K_init <- rep(1:K, each = floor(N / K))
+  return(K_init)
 }
 
-
-one_ahead_tmatrix <- function(K, alpha_1 = 2, alpha_2 = 1) {
+# might fix?
+tmatrix <- function(K, alpha_1 = 2, alpha_2 = 1) {
   A <- matrix(0, K, K)
   for (i in 1:(K - 1)){
     alphas <- c(alpha_1/(alpha_1 + alpha_2), alpha_2/(alpha_1 + alpha_2))
@@ -64,3 +67,36 @@ one_ahead_tmatrix <- function(K, alpha_1 = 2, alpha_2 = 1) {
   A[K,K] <- 1
   return(A)
 }
+
+###############################################################################
+# other parameter priors (just writing this out for myself)
+###############################################################################
+
+hyperparameters <- rinvgamma(2,1,1)
+mu <- hyperparameters[1]
+v2 <- hyperparameters[2]
+
+theta <- c()
+y <- c()
+N <- 150
+for(t in 1:N){
+  theta[t] <- rnorm(1, mu, sqrt(v2))
+  y[t] <- rnorm(1, theta, sqrt(3))
+}
+
+###############################################################################
+# Gibbs sampling process
+###############################################################################
+
+# (1) sample the current state full conditional (this is what I am really not sure how to do)
+# (2) sample from A given rest
+# (3) sample theta given y_t, mu, and v^2
+
+# will do this for 5000 iterations, 4 chains (ideally)
+# check convergence using trace plots and R-hat etc.
+# thin by 50 draws like Ko et al (reduce autocorrelation)
+# from remain samples, generate MaP of latent state sequence 
+# locate where on the sequence is a change -- these will be the change points
+# calculate frequecies of estimated change point counts maybe?
+
+
