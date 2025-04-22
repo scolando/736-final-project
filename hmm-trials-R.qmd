@@ -1,0 +1,277 @@
+---
+title: "Offline Change Point Detection with HMMs"
+author: 'Sara Colando'
+date: today
+format: html
+execute: 
+  warning: false
+  message: false
+---
+
+## Simulator Function and Simulated Output
+
+```{r}
+library(depmixS4)
+library(tidyverse)
+```
+
+
+```{r}
+outcome_simulator <- function(N = 150, k = 1,
+                              a = 1, b = 1, c = 1, d = 1){
+  
+  # change point (break) locations
+  if(k == 1) {t_k <- c(1,50,N+1) }
+  if(k == 2) {t_k <- c(1,50,100,N+1)}
+  
+  #priors on parameters
+  mu_mean <- invgamma::rinvgamma(1, shape = a, rate = b)
+  v_mean <- invgamma::rinvgamma(1, shape = a, rate = b)
+  
+  states <- c()
+  mus <- c()
+  sigma_2s <- rep(3, length(1:N))
+  y_vals <- c()
+  
+  for(i in 1:(length(t_k) - 1)) {
+    
+    # simulating mu value for segment
+    mu_k <- rnorm(1, mean = mu_mean, sd = sqrt(v_mean))
+    
+    # generating output segment
+    y_new <- rnorm(t_k[i + 1] - t_k[i], mean = mu_k, sd = sqrt(3))
+
+    # saving segment outputs to corresponding vectors
+    states <- c(states, rep(i, length(y_new)))
+    mus <- c(mus, rep(mu_k, length(y_new)))
+    #sigma_2s <- c(sigma_2s, rep(sigma_2, length(y_new)))
+    
+    y_vals <- c(y_vals, y_new)
+  }
+  
+  df <- data.frame(t = 1:N, y = y_vals,
+                   true_mu = mus, true_sigma_2 = sigma_2s,
+                   state = states)
+  
+  return(df)
+  
+}
+```
+
+
+```{r}
+set.seed(42)
+Yk1 <- outcome_simulator(N = 150, k = 1)
+```
+
+
+```{r}
+data <- dplyr::select(Yk1, t, y)
+
+Yk1 |>
+  ggplot(aes(x = t, y = y))+
+  geom_line()+
+  geom_vline(xintercept = which(diff(Yk1$state) != 0) + 1, 
+             color = '#377EB8', linewidth = 1)+
+  labs(y = 'Simulated Output',
+       x = 'Time')+
+  scale_x_continuous(breaks = seq(0,150, 25))+
+  scale_y_continuous(expand = c(0.05,0.05))+
+  theme_classic()
+
+ggsave('~/Desktop/example-cp.svg', bg = 'white', width = 7, height = 4, dpi = 1000)
+
+```
+
+
+```{r}
+hmm_model <- depmix(y~1, nstates=2,data= data)
+set.seed(47)
+fhmm_model <- depmixS4::fit(hmm_model)
+```
+
+
+```{r}
+#| warning: false
+post_states <- depmixS4::posterior(fhmm_model)$state
+
+data |>
+  ggplot(aes(x = t, y = y))+
+  geom_line()+
+  geom_vline(xintercept = which(diff(post_states) != 0) + 1,
+             linetype = 'dashed', color = "#E41A1C", linewidth = 1)+
+  geom_vline(xintercept = which(diff(Yk1$state) != 0) + 1, 
+             color = '#377EB8', linewidth = 1)+
+  labs(y = 'Simulated Output',
+       x = 'Time')+
+  scale_x_continuous(breaks = seq(0,150, 25), expand = c(0,0))+
+  scale_y_continuous(expand = c(0.05,0.05))+
+  theme_classic()
+```
+
+
+```{r}
+as.data.frame(ts(depmixS4::posterior(fhmm_model, type="smoothing"))) |>
+  mutate(time = row_number()) |>
+  pivot_longer(contains('Series'), names_to = 'type', values_to = 'post_prob') |>
+  mutate(type = case_when(
+    type == 'Series 1' ~ 'State 1',
+    type == 'Series 2' ~ 'State 2',
+    TRUE ~ type
+  )) |>
+  ggplot(aes(x = time, y = post_prob, color = type))+
+  geom_line(aes(linetype = type))+
+  geom_vline(xintercept = which(diff(Yk1$state) != 0) + 1)+
+  geom_point(shape = 1)+
+  labs(color = 'Hidden State',
+       linetype = 'Hidden State',
+       y = 'Posterior Probability',
+       x = 'Time')+
+  scale_x_continuous(breaks = seq(0,150, 25))+
+  scale_color_brewer(palette = "Set1")+
+  theme_classic()+
+  theme(
+    legend.background = element_rect(
+      fill = "white",
+      color = "black",
+      linewidth = 0.5 
+    ))
+```
+
+```{r}
+#| warning: false
+#| results: hide
+#| message: false
+set.seed(123)
+changepoints_list <- list()
+for(iter in 1:1000) {
+  hmm_model <- depmix(y~1, nstates=2,data= data)
+  fhmm_model <- depmixS4::fit(hmm_model)
+  post <- depmixS4::posterior(fhmm_model)
+  changepoints <- which(diff(post$state) != 0) + 1
+  changepoints_list <- append(changepoints_list, list(changepoints))
+}
+```
+
+```{r}
+#| warning: false
+data.frame(predicted_changepoints = unlist(changepoints_list)) |>
+  ggplot(aes(x = predicted_changepoints))+
+  geom_histogram(fill = 'black', color = 'black', alpha = 0.5,
+                 bins = 30)+
+  geom_vline(xintercept = which(diff(Yk1$state) != 0) + 1, 
+             color = '#377EB8', linewidth = 1)+
+  labs(x = 'Posterior Estimate of Change Points',
+       y = 'Count')+
+  scale_x_continuous(breaks = seq(0,150, 25), limits = c(0,150))+
+  scale_y_continuous(expand = c(0,0))+
+  theme_classic()
+```
+
+## Two Change Points (3 Hidden States)
+
+```{r}
+set.seed(42)
+Yk2 <- outcome_simulator(N = 150, k = 2)
+
+Yk2 |>
+  ggplot(aes(x = t, y = y))+
+  geom_line()+
+  geom_vline(xintercept = which(diff(Yk2$state) != 0) + 1, 
+             color = '#377EB8', linewidth = 1)+
+  labs(y = 'Simulated Output',
+       x = 'Time')+
+  scale_x_continuous(breaks = seq(0,150, 25), expand = c(0,0))+
+  scale_y_continuous(expand = c(0.05,0.05))+
+  theme_classic()
+```
+
+```{r}
+data2 <- dplyr::select(Yk2, t, y)
+
+hmm_model2 <- depmix(y~1, nstates = 3, data = data2)
+set.seed(47)
+fhmm_model2 <- depmixS4::fit(hmm_model2,
+                             solnpcntrl=list(rho = 1, outer.iter = 400, inner.iter = 800, 
+                                             delta = 1e-7, tol = 1e-8))
+```
+
+```{r}
+#| warning: false
+post_states2 <- depmixS4::posterior(fhmm_model2)$state
+
+data2 |>
+  ggplot(aes(x = t, y = y))+
+  geom_line()+
+  geom_vline(xintercept = which(diff(post_states2) != 0) + 1,
+             linetype = 'dashed', color = "#E41A1C", linewidth = 1)+
+  geom_vline(xintercept = which(diff(Yk2$state) != 0) + 1, 
+             color = '#377EB8', linewidth = 1)+
+  labs(y = 'Simulated Output',
+       x = 'Time')+
+  scale_x_continuous(breaks = seq(0,150, 25), expand = c(0,0))+
+  scale_y_continuous(expand = c(0.05,0.05))+
+  theme_classic()
+```
+
+
+```{r}
+as.data.frame(ts(depmixS4::posterior(fhmm_model2, type="smoothing"))) |>
+  mutate(time = row_number()) |>
+  pivot_longer(contains('Series'), names_to = 'type', values_to = 'post_prob') |>
+  mutate(type = case_when(
+    type == 'Series 1' ~ 'State 1',
+    type == 'Series 2' ~ 'State 2',
+    type == 'Series 3' ~ 'State 3',
+    TRUE ~ type
+  )) |>
+  ggplot(aes(x = time, y = post_prob, color = type))+
+  geom_line(aes(linetype = type))+
+  geom_vline(xintercept = which(diff(Yk2$state) != 0) + 1)+
+  geom_point(shape = 1)+
+  labs(color = 'Hidden State',
+       linetype = 'Hidden State',
+       y = 'Posterior Probability',
+       x = 'Time')+
+  scale_x_continuous(breaks = seq(0,150, 25))+
+  scale_color_brewer(palette = "Set1")+
+  theme_classic()+
+  theme(
+    legend.background = element_rect(
+      fill = "white",
+      color = "black",
+      linewidth = 0.5 
+    ))
+```
+
+```{r}
+#| warning: false
+#| results: hide
+#| message: false
+
+set.seed(123)
+changepoints_list <- list()
+for(iter in 1:1000) {
+  hmm_model <- depmix(y~1, nstates=3,data= data2)
+  fhmm_model <- depmixS4::fit(hmm_model)
+  post <- depmixS4::posterior(fhmm_model)
+  changepoints <- which(diff(post$state) != 0) + 1
+  changepoints_list <- append(changepoints_list, list(changepoints))
+}
+```
+
+```{r}
+#| warning: false
+data.frame(predicted_changepoints = unlist(changepoints_list)) |>
+  ggplot(aes(x = predicted_changepoints))+
+  geom_histogram(fill = 'black', color = 'black', alpha = 0.5,
+                 bins = 30)+
+    geom_vline(xintercept = which(diff(Yk2$state) != 0) + 1, 
+             color = '#377EB8', linewidth = 1)+
+  labs(x = 'Posterior Estimates of Change Point Locations',
+       y = 'Count')+
+  scale_x_continuous(breaks = seq(0,150, 25), limits = c(0,150))+
+  scale_y_continuous(expand = c(0,0))+
+  theme_classic()
+```
+

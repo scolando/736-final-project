@@ -44,8 +44,8 @@ gibbs_sampler <- function(y_n, transition_matrix, alpha = matrix(1, K, K),
                           K = 2, niter = 2000) {
   
   # initial parameter values
+  mu <- mean(y_n)
   v_squared <- rinvgamma(1,1.5,1.5)
-  mu <- rnorm(1, 0, sqrt(v_squared))
   theta <- rnorm(K, mu, sqrt(v_squared))
   
   tau_list <- list()
@@ -73,18 +73,18 @@ gibbs_sampler <- function(y_n, transition_matrix, alpha = matrix(1, K, K),
   y_tilde <- c()
   for (i in 1:K) {
     y_k <- y_n[z_sample == i]
-    y_tilde[i] <- if(length(y_k) > 0) mean(y_k) else 0
+    y_tilde[i] <- if_else(length(y_k) > 0, mean(y_k), 0)
   }
   
   theta <- c()
   for(i in 1:K) {
     n_i <- length(y_n[z_sample == i])
-    theta_mean <- ((n_i*y_tilde[i])/3 + mu/v_squared)* (1/(n_i/3 + 1/v_squared))
+    theta_mean <- ((n_i*y_tilde[i])/3 + mu/v_squared)*(1/(n_i/3 + 1/v_squared))
     theta_sd <- sqrt(1/(n_i/3 + 1/v_squared))
     theta <- c(theta, rnorm(1, theta_mean, theta_sd))
   }
   
-  # update the mu estimates
+  # update the mu estimates (assuming non-informative prior)
   mu <- rnorm(1, mean(theta), sqrt(v_squared/(K)))
   
  # update the v_squared estimates
