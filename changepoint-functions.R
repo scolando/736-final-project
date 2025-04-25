@@ -6,7 +6,7 @@ latent_state_FFBS <- function(y_n, theta, K = 2, transition_matrix = NULL) {
   # creating the emissions matrix
   emissions_matrix <- matrix(0, nrow = K, ncol = length(y_n))
   for(i in 1:K) {
-    emissions_matrix[i,] <- dnorm(y_n, theta[i], sqrt(3))
+    emissions_matrix[i,] <- dnorm(y_n, theta[i], sqrt(9))
   }
   
   # first, we do forward filtering
@@ -15,7 +15,7 @@ latent_state_FFBS <- function(y_n, theta, K = 2, transition_matrix = NULL) {
   
   for(t in 2:length(y_n)) {
     for(j in 1:K){
-      alpha[t,j] <- dnorm(y_n[t], theta[j], sqrt(3)) * sum(alpha[t - 1,] * transition_matrix[,j])
+      alpha[t,j] <- dnorm(y_n[t], theta[j], sqrt(9)) * sum(alpha[t - 1,] * transition_matrix[,j])
     }
     # normalization of probabilities so they sum to one
     alpha[t,] <- alpha[t,]/sum(alpha[t,]) 
@@ -79,8 +79,8 @@ gibbs_sampler <- function(y_n, transition_matrix, alpha = matrix(1, K, K),
   theta <- c()
   for(i in 1:K) {
     n_i <- length(y_n[z_sample == i])
-    theta_mean <- ((n_i*y_tilde[i])/3 + mu/v_squared)*(1/(n_i/3 + 1/v_squared))
-    theta_sd <- sqrt(1/(n_i/3 + 1/v_squared))
+    theta_mean <- ((n_i*y_tilde[i])/9 + mu/v_squared)*(1/(n_i/9 + 1/v_squared))
+    theta_sd <- sqrt(1/(n_i/9 + 1/v_squared))
     theta <- c(theta, rnorm(1, theta_mean, theta_sd))
   }
   

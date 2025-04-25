@@ -7,8 +7,11 @@ execute:
   message: false
 ---
 
+Rough code used to run the Gibbs sampler chains, as well as diagnostics and results plots. 
+
 ```{r}
 library(tidyverse)
+library(cowplot)
 library(patchwork)
 library(invgamma)
 library(MCMCpack)
@@ -23,9 +26,63 @@ source('changepoint-functions.R')
 
 
 ```{r}
+K <- 2
+stay_prob <- 0.9
+leave_prob <- (1 - stay_prob) / (K - 1)
+transition_matrix <- matrix(leave_prob, nrow = K, ncol = K)
+diag(transition_matrix) <- stay_prob
+alpha <- matrix(1, K, K)
+
+wrapped_gibbs <- function(mu) {
+  
+  set.seed(47)
+  
+  y_n = c(rnorm(50, mean = mu[1], sd = 3),
+          rnorm(100, mean = mu[2], sd = 3))
+  
+  set.seed(NULL)
+  
+  message('running chain 1...')
+  
+  chain1 <- gibbs_sampler(y_n = y_n, transition_matrix = transition_matrix,
+                        alpha = alpha, K = K, niter = 2000)
+  
+  message('running chain 2...')
+  
+  chain2 <- gibbs_sampler(y_n = y_n, transition_matrix = transition_matrix,
+                        alpha = alpha, K = K, niter = 2000)
+  
+  message('running chain 3...')
+  
+  chain3 <- gibbs_sampler(y_n = y_n, transition_matrix = transition_matrix,
+                        alpha = alpha, K = K, niter = 2000)
+  
+  message('running chain 4...')
+  
+  chain4 <- gibbs_sampler(y_n = y_n, transition_matrix = transition_matrix,
+                        alpha = alpha, K = K, niter = 2000)
+
+  return(list(chain1, chain2, chain3, chain4))
+}
+
+
+mu_df <- data.frame(mu1 = c(-5, -4, -3, -2, -1, -0.5),
+                    mu2 = c(5, 4, 3, 2, 1, 0.5))
+
+all_chains <- list()
+for(i in 1:nrow(mu_df)){
+  print(paste0('mu1: ', mu_df[i,1], ', mu2: ', mu_df[i,2]))
+  new_mu <- wrapped_gibbs(mu = as.numeric(mu_df[i,]))
+  all_chains <- append(all_chains, list(new_mu))
+}
+```
+
+
+
+```{r}
 set.seed(47)
-mu1 <- -5
-mu2 <- 5
+mu1 <- -0.5
+mu2 <- 0.5
 n1 <- 50
 n2 <- 100
 
@@ -46,7 +103,7 @@ sim_data |>
   theme_minimal()+
   theme(axis.text = element_text(color = 'black'))
   
-ggsave('figures/simulated_ts.svg', bg = 'white', dpi = 1000, width = 7, height = 4)
+ggsave('figures/simulated_ts.pdf', bg = 'white', dpi = 1000, width = 7, height = 4)
 ```
 
 
@@ -75,7 +132,7 @@ chain4 <- gibbs_sampler(y_n = y_n, transition_matrix = transition_matrix,
 ```{r}
 prop_state1_posterior <- function(chain_list) {
   name <- deparse(substitute(chain_list))
-  chain <- sub(".*?(\\d+)$", "\\1", name)
+  chain <- sub(".*\\[\\[(\\d+)\\]\\].*", "\\1", name)
   z_samples <- map(chain_list, ~.x[[1]])
   prop_state1_chain <- data.frame(prop_state1_chain = 
                                   sapply(z_samples, function(z) mean(z == 1)),
@@ -84,12 +141,13 @@ prop_state1_posterior <- function(chain_list) {
   return(prop_state1_chain)
 }
 
-prop_state1_chain_df <- prop_state1_posterior(chain1) |>
-  rbind(prop_state1_posterior(chain2)) |>
-  rbind(prop_state1_posterior(chain3)) |>
-  rbind(prop_state1_posterior(chain4))
+prop_state1_chain_df <- prop_state1_posterior(all_chains[[1]][[1]]) |>
+  rbind(prop_state1_posterior(all_chains[[1]][[2]])) |>
+  rbind(prop_state1_posterior(all_chains[[1]][[3]])) |>
+  rbind(prop_state1_posterior(all_chains[[1]][[4]]))
 
-prop_state1_chain_df |>
+p1 <- prop_state1_chain_df |>
+  #filter(iter > 100) |>
   ggplot(aes(x = iter, y = prop_state1_chain, color = chain))+
   geom_line(linewidth = 0.2)+
   geom_hline(yintercept = n1/(n1 + n2), color = 'black',
@@ -98,13 +156,41 @@ prop_state1_chain_df |>
   labs(x = 'Iteration',
        y = 'Proportion of Sequence in State 1',
        color = 'Chain')+
-  theme_minimal()
+  theme_minimal()+
+  theme(legend.position = 'none')
+
+
+prop_state1_chain_df <- prop_state1_posterior(all_chains[[6]][[1]]) |>
+  rbind(prop_state1_posterior(all_chains[[6]][[2]])) |>
+  rbind(prop_state1_posterior(all_chains[[6]][[3]])) |>
+  rbind(prop_state1_posterior(all_chains[[6]][[4]]))
+
+p2 <- prop_state1_chain_df |>
+  #filter(iter > 100) |>
+  ggplot(aes(x = iter, y = prop_state1_chain, color = chain))+
+  geom_line(linewidth = 0.2)+
+  geom_hline(yintercept = n1/(n1 + n2), color = 'black',
+             linetype = 'dashed')+
+  scale_color_manual(values = c('skyblue2', 'cadetblue3', 'steelblue', 'lightsteelblue'))+
+  labs(x = 'Iteration',
+       y = 'Proportion of Sequence in State 1',
+       color = 'Chain')+
+  theme_minimal()+
+  theme(axis.title.y = element_blank())
+
+
+
+
+combined_plot <- plot_grid(p1, p2, nrow = 1, rel_widths = c(1, 1))
+
+
+ggsave('figures/traceplot1.pdf', combined_plot, dpi = 1000, width = 10, height = 5, bg = 'white')
 ```
 
 ```{r}
 theta1_posterior <- function(chain_list) {
   name <- deparse(substitute(chain_list))
-  chain <- sub(".*?(\\d+)$", "\\1", name)
+  chain <- sub(".*\\[\\[(\\d+)\\]\\].*", "\\1", name)
   theta1 <-  unlist(map(chain_list, ~ .x[[2]][1]))
   theta1_chain <- data.frame(theta1 = theta1,
                              chain = chain, iter = 1:length(chain_list))
@@ -112,29 +198,56 @@ theta1_posterior <- function(chain_list) {
   return(theta1_chain)
 }
 
-theta1_chain_df <- theta1_posterior(chain1) |>
-  rbind(theta1_posterior(chain2)) |>
-  rbind(theta1_posterior(chain3)) |>
-  rbind(theta1_posterior(chain4))
+theta2_chain_df <- theta2_posterior(all_chains[[1]][[1]]) |>
+  rbind(theta2_posterior(all_chains[[1]][[2]])) |>
+  rbind(theta2_posterior(all_chains[[1]][[3]])) |>
+  rbind(theta2_posterior(all_chains[[1]][[4]]))
 
 
-theta1_chain_df |>
-  ggplot(aes(x = iter, y = theta1, color = chain))+
+p1 <- theta2_chain_df |>
+  #filter(iter > 10) |>
+  ggplot(aes(x = iter, y = theta2, color = chain))+
   geom_line(linewidth = 0.2)+
-  geom_hline(yintercept = mu1, color = 'black',
+  geom_hline(yintercept = 5, color = 'black',
             linetype = 'dashed')+
   scale_color_manual(values = c('skyblue2', 'cadetblue3', 'steelblue',
                                 'lightsteelblue'))+
   labs(x = 'Iteration',
-       y = 'Theta 1 Posterior Estimate',
+       y = 'Theta 2 Posterior Estimate',
        color ='Chain') +
-  theme_minimal()
+  theme_minimal()+
+  theme(legend.position = 'none')
+
+
+theta2_chain_df <- theta2_posterior(all_chains[[6]][[1]]) |>
+  rbind(theta2_posterior(all_chains[[6]][[2]])) |>
+  rbind(theta2_posterior(all_chains[[6]][[3]])) |>
+  rbind(theta2_posterior(all_chains[[6]][[4]]))
+
+
+p2 <- theta2_chain_df |>
+  #filter(iter > 10) |>
+  ggplot(aes(x = iter, y = theta2, color = chain))+
+  geom_line(linewidth = 0.2)+
+  geom_hline(yintercept = 0.5, color = 'black',
+            linetype = 'dashed')+
+  scale_color_manual(values = c('skyblue2', 'cadetblue3', 'steelblue',
+                                'lightsteelblue'))+
+  labs(x = 'Iteration',
+       y = 'Theta 2 Posterior Estimate',
+       color ='Chain') +
+  theme_minimal()+
+  theme(axis.title.y = element_blank())
+
+combined_plot <- plot_grid(p1, p2, nrow = 1, rel_widths = c(1, 1))
+
+ggsave('figures/traceplot-theta2.pdf', dpi = 1000, width = 7, height = 4, bg = 'white')
 ```
 
 ```{r}
 theta2_posterior <- function(chain_list) {
   name <- deparse(substitute(chain_list))
-  chain <- sub(".*?(\\d+)$", "\\1", name)
+  chain <- sub(".*\\[\\[(\\d+)\\]\\].*", "\\1", name)
   theta2 <-  unlist(map(chain_list, ~ .x[[2]][2]))
   theta2_chain <- data.frame(theta2 = theta2,
                              chain = chain, iter = 1:length(chain_list))
@@ -143,12 +256,15 @@ theta2_posterior <- function(chain_list) {
 }
 
 
-theta2_chain_df <- theta2_posterior(chain1) |>
-  rbind(theta2_posterior(chain2)) |>
-  rbind(theta2_posterior(chain3)) |>
-  rbind(theta2_posterior(chain4))
+theta1_chain_df <- theta1_posterior(all_chains[[5]][[1]]) |>
+  rbind(theta1_posterior(all_chains[[5]][[1]])) |>
+  rbind(theta1_posterior(all_chains[[5]][[1]])) |>
+  rbind(theta1_posterior(all_chains[[5]][[1]]))
+
+quantile(theta1_chain_df$theta1, c(0.025, 0.975))
 
 theta2_chain_df |>
+  filter(iter > 10) |>
   ggplot(aes(x = iter, y = theta2, color = chain))+
   geom_line(linewidth = 0.2)+
   geom_hline(yintercept = mu2, color = 'black',
@@ -159,12 +275,14 @@ theta2_chain_df |>
        y = 'Theta 2 Posterior Estimate',
        color ='Chain') +
   theme_minimal()
+
+ggsave('figures/theta2_post.pdf', dpi = 1000, width = 7, height = 4, bg = 'white')
 ```
 
 ```{r}
 tau_count_posterior <- function(chain_list) {
   name <- deparse(substitute(chain_list))
-  chain <- sub(".*?(\\d+)$", "\\1", name)
+  chain <- sub(".*\\[\\[(\\d+)\\]\\].*", "\\1", name)
   tau_counts <-  unlist(map(chain_list, ~ length(unique(.x[[3]]))))
   tau_chain <- data.frame(tau_counts = tau_counts,
                              chain = chain, iter = 1:length(chain_list))
@@ -172,12 +290,13 @@ tau_count_posterior <- function(chain_list) {
   return(tau_chain)
 }
 
-tau_count_chain_df <- tau_count_posterior(chain1) |>
-  rbind(tau_count_posterior(chain2)) |>
-  rbind(tau_count_posterior(chain3)) |>
-  rbind(tau_count_posterior(chain4))
+tau_count_chain_df <- tau_count_posterior(all_chains[[1]][[1]]) |>
+  rbind(tau_count_posterior(all_chains[[1]][[2]])) |>
+  rbind(tau_count_posterior(all_chains[[1]][[3]])) |>
+  rbind(tau_count_posterior(all_chains[[1]][[4]]))
 
-tau_count_chain_df |>
+p1 <- tau_count_chain_df |>
+  #filter(iter > 10) |>
   ggplot(aes(x = iter, y = tau_counts, color = chain))+
   geom_line(linewidth = 0.2)+
   geom_hline(yintercept = K - 1, color = 'black',
@@ -188,11 +307,48 @@ tau_count_chain_df |>
        y = 'Tau Count Posterior Estimate',
        color ='Chain') +
   scale_y_continuous(breaks = seq(0,150, 5))+
-  theme_minimal()
+  theme_minimal()+
+  theme(legend.position = 'none')
+
+
+tau_count_chain_df <- tau_count_posterior(all_chains[[6]][[1]]) |>
+  rbind(tau_count_posterior(all_chains[[6]][[2]])) |>
+  rbind(tau_count_posterior(all_chains[[6]][[3]])) |>
+  rbind(tau_count_posterior(all_chains[[6]][[4]]))
+
+p2 <- tau_count_chain_df |>
+  #filter(iter > 10) |>
+  ggplot(aes(x = iter, y = tau_counts, color = chain))+
+  geom_line(linewidth = 0.2)+
+  geom_hline(yintercept = K - 1, color = 'black',
+             linetype = 'dashed')+
+  scale_color_manual(values = c('skyblue2', 'cadetblue3', 'steelblue',
+                                'lightsteelblue'))+
+  labs(x = 'Iteration',
+       y = 'Tau Count Posterior Estimate',
+       color ='Chain') +
+  scale_y_continuous(breaks = seq(0,150, 10))+
+  theme_minimal()+
+  theme(axis.title.y = element_blank())
+
+combined_plot <- plot_grid(p1, p2, nrow = 1, rel_widths = c(1, 1))
+
+ggsave('figures/tc_post.pdf', combined_plot, dpi = 1000, width = 7, height = 4, bg = 'white')
 ```
 
 ```{r}
-# fix????
+tau_count_posterior(all_chains[[6]][[1]]) |>
+  rbind(tau_count_posterior(all_chains[[6]][[2]])) |>
+  rbind(tau_count_posterior(all_chains[[6]][[3]])) |>
+  rbind(tau_count_posterior(all_chains[[6]][[4]]))|>
+  filter(iter > 100) |>
+  group_by(tau_counts) |>
+  summarize(prop = n()/7600)
+```
+
+
+
+```{r}
 tau_matrix_posterior <- function(chain_list) {
   name <- deparse(substitute(chain_list))
   chain <- sub(".*?(\\d+)$", "\\1", name)
@@ -224,28 +380,61 @@ tau_matrix_posterior <- function(chain_list) {
   return(state_props_chain)
 }
 
-state_props_df <- tau_matrix_posterior(chain1) |>
-  rbind(tau_matrix_posterior(chain2)) |>
-  rbind(tau_matrix_posterior(chain3)) |>
-  rbind(tau_matrix_posterior(chain4)) |>
+state_props_df <- tau_matrix_posterior(all_chains[[4]][[1]]) |>
+  rbind(tau_matrix_posterior(all_chains[[4]][[2]])) |>
+  rbind(tau_matrix_posterior(all_chains[[4]][[3]])) |>
+  rbind(tau_matrix_posterior(all_chains[[4]][[4]])) |>
   group_by(time) |>
   summarize(`State 1` = mean(`State 1`),
             `State 2` = mean(`State 2`))
 
-state_props_df |>
+p1 <- state_props_df |>
   pivot_longer(contains('State'), names_to = 'state', values_to = 'post_prob') |>
   ggplot(aes(x = time, y = post_prob, color = state))+
-  #geom_vline(xintercept = 51)+
+  geom_hline(yintercept = 0.5, linetype = 'dashed',
+               color = 'grey30')+
+  geom_vline(xintercept = 51)+
   geom_line(aes(linetype = state))+
   geom_point(shape = 1)+
   labs(x = 'Time', y = 'Average Posterior Probability', color = 'Hidden State',
        linetype = 'Hidden State')+
   scale_x_continuous(breaks = seq(1,150, 25))+
+  scale_y_continuous(breaks = seq(0,1,0.1))+
+  ylim(c(0,1))+
   scale_color_brewer(palette = 'Set1')+
   theme_minimal()+
-  theme(axis.text = element_text(color = 'black'))
+  theme(axis.text = element_text(color = 'black'),
+        legend.position = 'none')
 
-ggsave('figures/post_prob.svg', dpi = 1000, width = 7, height = 4, bg = 'white')
+
+state_props_df <- tau_matrix_posterior(all_chains[[6]][[1]]) |>
+  rbind(tau_matrix_posterior(all_chains[[6]][[2]])) |>
+  rbind(tau_matrix_posterior(all_chains[[6]][[3]])) |>
+  rbind(tau_matrix_posterior(all_chains[[6]][[4]])) |>
+  group_by(time) |>
+  summarize(`State 1` = mean(`State 1`),
+            `State 2` = mean(`State 2`))
+
+p3 <- state_props_df |>
+  pivot_longer(contains('State'), names_to = 'state', values_to = 'post_prob') |>
+  ggplot(aes(x = time, y = post_prob, color = state))+
+  geom_hline(yintercept = 0.5, linetype = 'dashed',
+               color = 'grey30')+
+  geom_vline(xintercept = 51)+
+  geom_line(aes(linetype = state))+
+  geom_point(shape = 1)+
+  labs(x = 'Time', y = 'Average Posterior Probability', color = 'Hidden State',
+       linetype = 'Hidden State')+
+  scale_x_continuous(breaks = seq(1,150, 25))+
+  scale_y_continuous(breaks = seq(0,1,0.1))+
+  ylim(c(0,1))+
+  scale_color_brewer(palette = 'Set1')+
+  theme_minimal()+
+  theme(axis.text = element_text(color = 'black'),
+        axis.title.y = element_blank())
+
+
+ggsave('figures/post_prob2.pdf', dpi = 1000, width = 7, height = 4, bg = 'white')
 
 changepoint_locations <- function(chain_list) {
   name <- deparse(substitute(chain_list))
@@ -256,13 +445,13 @@ changepoint_locations <- function(chain_list) {
   return(predicted_changepoint)
 }
 
-changepoint_locations_df <- changepoint_locations(chain1) |>
-  rbind(changepoint_locations(chain2)) |>
-  rbind(changepoint_locations(chain3)) |>
-  rbind(changepoint_locations(chain4)) 
+changepoint_locations_df <- changepoint_locations(all_chains[[6]][[1]]) |>
+  rbind(changepoint_locations(all_chains[[6]][[2]])) |>
+  rbind(changepoint_locations(all_chains[[6]][[3]])) |>
+  rbind(changepoint_locations(all_chains[[6]][[4]])) 
 
 
-changepoint_locations_df |>
+p2 <- changepoint_locations_df |>
   ggplot(aes(x = predicted_changepoint))+
   geom_histogram(bins = 30, color = 'skyblue3',
                  fill = 'skyblue3', alpha = 0.5)+
@@ -273,7 +462,13 @@ changepoint_locations_df |>
   theme_minimal()+
   theme(axis.text = element_text(color = 'black'))
 
-ggsave('figures/pred_cp.svg', dpi = 1000, width = 7, height = 4, bg = 'white')
+ggsave('figures/pred_cp2.pdf', dpi = 1000, width = 7, height = 4, bg = 'white')
+
+
+combined_plot <- plot_grid(p1, p3, nrow = 1, rel_widths = c(1, 1.25))
+
+ggsave("figures/combined_plot2.png", combined_plot, width = 10, height = 5,
+       bg = 'white', dpi = 1000) 
 
 
 changepoint_locations_df |>
@@ -284,3 +479,5 @@ changepoint_locations_df |>
   slice_head(n = 10) |>
   knitr::kable(digits = 4)
 ```
+
+
